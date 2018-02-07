@@ -9,24 +9,24 @@ import (
 	"github.com/ulrichSchreiner/go-elevations/geoelevations"
 )
 
-var (
-	client = http.DefaultClient
+type elevationservice struct {
+	client *http.Client
 	srtm   *geoelevations.Srtm
-)
-
-func main() {
-	cachedir := os.Getenv("ELEVATION_CACHE")
-	s, err := geoelevations.NewSrtmWithCustomCacheDir(client, cachedir)
-	if err != nil {
-		panic(err.Error())
-	}
-	srtm = s
-
-	http.HandleFunc("/", elevation)
-	http.ListenAndServe(":8000", nil)
 }
 
-func elevation(w http.ResponseWriter, r *http.Request) {
+func newElevationService() (*elevationservice, error) {
+	cachedir := os.Getenv("ELEVATION_CACHE")
+	s, err := geoelevations.NewSrtmWithCustomCacheDir(http.DefaultClient, cachedir)
+	if err != nil {
+		return nil, err
+	}
+	return &elevationservice{
+		client: http.DefaultClient,
+		srtm:   s,
+	}, nil
+}
+
+func (es *elevationservice) elevation(w http.ResponseWriter, r *http.Request) {
 	r.ParseForm()
 	slat := r.Form.Get("lat")
 	slng := r.Form.Get("lng")
@@ -40,10 +40,20 @@ func elevation(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	elevation, err := srtm.GetElevation(client, lat, lng)
+	elevation, err := es.srtm.GetElevation(es.client, lat, lng)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	fmt.Fprintf(w, "%f\n", elevation)
+}
+
+func main() {
+	es, err := newElevationService()
+	if err != nil {
+		panic(err)
+	}
+
+	http.HandleFunc("/elevation", es.elevation)
+	http.ListenAndServe(":8000", nil)
 }
